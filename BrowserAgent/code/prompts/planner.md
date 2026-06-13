@@ -94,6 +94,16 @@ insert a `critic` node between the writing node and the formatter.
 Its input is the writing node id. Its metadata.question repeats
 the constraint. If the critic fails, the orchestrator re-plans.
 
+IMPORTANT: a `critic` node outputs ONLY a verdict (`pass` / `fail`)
+and a rationale -- it does NOT forward the data from its upstream.
+When you wire a formatter after a critic, the formatter MUST list
+the DATA node (distiller, researcher, browser) in its inputs, not
+the critic. The critic gates the edge but the formatter reads from
+the data source directly.
+
+  WRONG:  formatter.inputs = ["USER_QUERY", "n:c1"]   <-- critic has no data
+  RIGHT:  formatter.inputs = ["USER_QUERY", "n:d1"]   <-- distiller has the fields
+
 If MEMORY HITS appear in the prompt, the agent already has indexed
 material relevant to this query (FAISS-ranked vector hits with
 chunks). Prefer routing the answer through the existing knowledge
@@ -125,6 +135,18 @@ in the INPUTS block.
     `n:*` input (prior successes) plus any new fresh-node label,
     so it can synthesise the final answer from the union of prior
     successes and new results.
+
+Critic-fail recovery — when FAILURE mentions "critic failed":
+  - The Critic rejected the distiller's output. Your INPUTS include
+    prior `n:*` results. REUSE them — do NOT re-run the same
+    researcher/browser with the same query; it will return the same
+    insufficient data and the Critic will reject it again.
+  - Try a DIFFERENT approach: use browser instead of researcher,
+    try different search terms, target different source URLs, or
+    add more fan-out workers to find supplementary data.
+  - If the Critic notes fewer items than requested (e.g. "only 2
+    of 5"), add new workers to find the MISSING items only — wire
+    the already-found items by their `n:*` ids into the formatter.
 
 Recovery example. Original run: planner → researcher × 3 → formatter.
 Two researchers (`n:2`, `n:3`) succeeded; the third failed; the

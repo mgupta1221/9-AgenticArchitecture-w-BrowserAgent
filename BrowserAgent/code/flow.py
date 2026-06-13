@@ -159,10 +159,14 @@ class Graph:
         # in the common pre-planned case). Reading the graph's actual
         # outgoing edges makes the flag load-bearing in both shapes.
         if src_def.critic:
+            has_critic = any(
+                self.g.nodes[child_nid].get("skill") == "critic"
+                for child_nid in self.g.successors(src_nid)
+            )
+            if has_critic:
+                return added
             child_targets: list[str] = []
             for child_nid in list(self.g.successors(src_nid)):
-                if self.g.nodes[child_nid].get("skill") == "critic":
-                    continue  # already gated
                 child_targets.append(child_nid)
             for child_nid in child_targets:
                 self.g.remove_edge(src_nid, child_nid)
@@ -286,6 +290,7 @@ class Executor:
                         failed_skill=failed_skill,
                         error_text=result.error or "",
                         failed_node_id=nid,
+                        failed_metadata=graph.g.nodes[nid].get("metadata"),
                     )
                     if decision.action == "skip":
                         print(f"  ↪ {nid} failed ({decision.reason}, "

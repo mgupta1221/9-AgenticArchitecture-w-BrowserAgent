@@ -55,7 +55,7 @@ class Skill:
     def prompt_template(self) -> str:
         if not self.prompt_path.exists():
             return f"You are the {self.name} skill. (Prompt file missing.)"
-        return self.prompt_path.read_text()
+        return self.prompt_path.read_text(encoding="utf-8")
 
 
 class SkillRegistry:
@@ -271,8 +271,10 @@ async def run_skill(skill: Skill, node_id: str, graph_nodes,
     # in its inputs.
     node_meta = graph_nodes[node_id].get("metadata") or {}
     question = node_meta.get("question") if isinstance(node_meta, dict) else None
+    _MEMORY_ENABLED_SKILLS = {"planner", "researcher", "retriever"}
+    skill_memory = memory_hits if skill.name in _MEMORY_ENABLED_SKILLS else None
     rendered = render_prompt(skill, query, resolved, failure_report,
-                             memory_hits=memory_hits, question=question)
+                             memory_hits=skill_memory, question=question)
     started = time.time()
 
     if skill.name == "sandbox_executor":

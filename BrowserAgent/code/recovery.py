@@ -56,6 +56,7 @@ def plan_recovery(
     failed_skill: str,
     error_text: str,
     failed_node_id: str,
+    failed_metadata: dict | None = None,
 ) -> RecoveryDecision:
     """Decide what to do with a node failure that is NOT a critic-verdict
     failure. The critic-fail path is handled separately in the Executor
@@ -87,11 +88,21 @@ def plan_recovery(
         )
     fr = (f"node={failed_node_id} skill={failed_skill} reason={reason} "
           f"error={error_text}")
+    md = failed_metadata or {}
+    if md.get("goal"):
+        fr += f" goal={md['goal']}"
+    if md.get("url"):
+        fr += f" url={md['url']}"
+    if md.get("question"):
+        fr += f" question={md['question']}"
     return RecoveryDecision(
         action="replan", reason=reason,
         note="upstream failure; queueing planner recovery",
         failure_report=fr,
     )
+
+
+MAX_CRITIC_RECOVERIES = 3   # total critic-fail recoveries allowed per session
 
 
 def handle_critic_verdict(nid: str, result, graph, recovered_branches: dict,
@@ -104,6 +115,10 @@ def handle_critic_verdict(nid: str, result, graph, recovered_branches: dict,
     inserts one whenever a `critic:true` skill has outgoing edges) which
     carry `target` + `child` in metadata, and Planner-emitted Critics
     which do not — for the latter we derive both from graph structure.
+
+    The cap uses a global counter (_critic_recovery_total) rather than
+    per-target_nid, because each recovery cycle creates a new distiller
+    node — keying by target_nid would never match across cycles.
     """
     if (result.output or {}).get("verdict", "pass") != "fail":
         return False
@@ -119,17 +134,33 @@ def handle_critic_verdict(nid: str, result, graph, recovered_branches: dict,
         child_nid = succs[0] if succs else None
     if child_nid and child_nid in graph.g.nodes:
         graph.mark(child_nid, "skipped")
-    if target_nid and not recovered_branches.get(target_nid):
+
+    # Global counter: how many critic-fail recoveries have we already done?
+    total_critic_recoveries = sum(1 for v in recovered_branches.values() if v)
+    if target_nid and total_critic_recoveries < MAX_CRITIC_RECOVERIES:
         recovered_branches[target_nid] = True
         rationale = (result.output or {}).get("rationale", "(no rationale)")
         fr = f"critic failed target={target_nid} child={child_nid} rationale={rationale}"
-        rec_nid = graph.add_node("planner", inputs=["USER_QUERY"],
+        # Pass prior_complete nodes so the recovery planner can reuse them
+        # instead of re-fetching the same data.
+        from schemas import AgentResult as _AR
+        prior_complete = [
+            n for n, d in graph.g.nodes(data=True)
+            if d.get("status") == "complete"
+            and d["skill"] not in ("planner", "critic")
+            and isinstance(d.get("result"), _AR)
+        ]
+        recovery_inputs = ["USER_QUERY"] + prior_complete
+        rec_nid = graph.add_node("planner", inputs=recovery_inputs,
                                  metadata={"failure_report": fr,
                                            "recovers": target_nid,
-                                           "recovery_reason": "critic_fail"})
-        print(f"  ↪ critic-fail recovery: planner node {rec_nid} for {target_nid}")
+                                           "recovery_reason": "critic_fail",
+                                           "prior_complete": prior_complete})
+        print(f"  ↪ critic-fail recovery: planner node {rec_nid} for {target_nid}"
+              + (f"; reusing {len(prior_complete)} prior result(s): "
+                 f"{', '.join(prior_complete)}" if prior_complete else ""))
     elif target_nid:
         cap_hit.append(target_nid)
-        print(f"  ↪ critic-fail on {target_nid} already recovered once; "
-              f"CAP HIT — branch skipped, final will reflect missing data")
+        print(f"  ↪ critic-fail recovery cap ({MAX_CRITIC_RECOVERIES}) hit; "
+              f"branch skipped, final will reflect missing data")
     return True
