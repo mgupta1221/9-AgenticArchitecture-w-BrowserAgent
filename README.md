@@ -193,40 +193,53 @@ When detected, the skill returns `error_code="gateway_blocked"` so the Planner c
 - **API keys** for at least one LLM provider (Gemini recommended)
 - **Ollama** (optional, for local models and embeddings)
 
-### Step 1: Clone and Install Dependencies
+### Step 1: Create Virtual Environments and Install Dependencies
+
+`uv sync` creates an isolated `.venv/` inside each project directory and installs all dependencies into it. `uv run` automatically activates that environment before executing a command.
 
 ```bash
-# Install the LLM Gateway
+# 1. Set up the LLM Gateway (creates llm_gatewayV9/.venv/)
 cd llm_gatewayV9
 uv sync
 
-# Install the BrowserAgent
+# 2. Set up the BrowserAgent (creates BrowserAgent/code/.venv/)
 cd ../BrowserAgent/code
 uv sync
 
-# Install Playwright browsers (needed for Browser skill)
+# 3. Install Playwright browsers (needed for Browser skill)
 uv run playwright install chromium
 ```
 
+> **Without uv:** If you prefer standard virtualenv, create and activate one manually in each directory, then install with pip:
+> ```bash
+> cd llm_gatewayV9
+> python -m venv .venv
+> .venv\Scripts\activate        # Windows
+> # source .venv/bin/activate   # macOS/Linux
+> pip install -r requirements.txt  # or: pip install -e .
+>
+> cd ../BrowserAgent/code
+> python -m venv .venv
+> .venv\Scripts\activate
+> pip install -e .
+> playwright install chromium
+> ```
+
 ### Step 2: Configure API Keys
 
-Create a `.env` file in `llm_gatewayV9/` with your provider keys:
+Both directories ship a `.env.example` with all supported variables. Copy and fill in your keys:
 
-```env
-GEMINI_API_KEY=your-gemini-key
-GROQ_API_KEY=your-groq-key
+```bash
+# LLM Gateway -- at least one provider key required (Gemini recommended)
+cp llm_gatewayV9/.env.example llm_gatewayV9/.env
+# Edit llm_gatewayV9/.env and set GEMINI_API_KEY, GROQ_API_KEY, etc.
 
-# Optional providers
-OLLAMA_URL=http://localhost:11434
-GITHUB_TOKEN=your-github-token
-OPENROUTER_API_KEY=your-openrouter-key
+# BrowserAgent -- needed for the Researcher skill's web search
+cp BrowserAgent/code/.env.example BrowserAgent/code/.env
+# Edit BrowserAgent/code/.env and set TAVILY_API_KEY
 ```
 
-Create a `.env` file in `BrowserAgent/code/` for web search:
-
-```env
-TAVILY_API_KEY=tvly-dev-your-key
-```
+> See each `.env.example` for the full list of optional provider keys, model overrides, and embedding configuration.
 
 ### Step 3: Start the LLM Gateway
 
